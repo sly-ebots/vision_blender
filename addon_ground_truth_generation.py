@@ -511,7 +511,7 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
                              [  0, f_y,  c_y],
                              [  0,   0,    1]])
         # Blender by default assumes a padding of 4 digits
-        out_path = os.path.join(gt_dir_path, '{:04d}.npz'.format(scene.frame_current))
+        out_path = os.path.join(gt_dir_path, '{}.npz'.format(scene.camera.name))
         #print(out_path)
         out_dict = {'optical_flow'               : opt_flw,
                     'segmentation_masks'         : seg_masks,
