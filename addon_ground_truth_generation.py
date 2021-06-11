@@ -67,6 +67,7 @@ def get_camera_parameters_intrinsic(scene):
         scene.render.pixel_aspect_y * res_y
     )
     pixel_aspect_ratio = scene.render.pixel_aspect_y / scene.render.pixel_aspect_x
+    
     if sensor_fit == 'HORIZONTAL':
         view_fac_in_px = res_x
     else:
@@ -76,6 +77,7 @@ def get_camera_parameters_intrinsic(scene):
     f_y = (1.0 / pixel_size_mm_per_px) / pixel_aspect_ratio
     c_x = (res_x - 1) / 2.0 - cam_data.shift_x * view_fac_in_px
     c_y = (res_y - 1) / 2.0 + (cam_data.shift_y * view_fac_in_px) / pixel_aspect_ratio
+
     return f_x, f_y, c_x, c_y
 
 
@@ -173,7 +175,6 @@ def clean_folder(folder_path):
     if os.path.isdir(folder_path):
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
-            print(file_path)
             try:
                 if os.path.isfile(file_path) or os.path.islink(file_path):
                     os.unlink(file_path)
@@ -189,6 +190,11 @@ def check_any_obj_with_index():
             return True
     return False
 
+def check_any_material_with_index():
+    for mat in bpy.data.materials:
+        if mat.pass_index != 0:
+            return True
+    return False
 
 def get_largest_object_name_length():
     max_chars = 0
@@ -201,11 +207,11 @@ def get_largest_object_name_length():
 def get_struct_array_of_obj_indexes():
     # ref: https://numpy.org/doc/stable/user/basics.rec.html
     n_chars = get_largest_object_name_length()
-    n_object = len(bpy.data.objects)
+    n_object = len(bpy.data.materials)
     # max_index = 32767 in Blender version 2.83, so unsigned 2-byte is more than enough memory
     obj_indexes = np.zeros(n_object, dtype=[('name', 'U{}'.format(n_chars)), ('pass_index', '<u2')])
-    for ind, obj in enumerate(bpy.data.objects):
-        obj_indexes[ind] = (obj.name, obj.pass_index)
+    for ind, mat in enumerate(bpy.data.materials):
+        obj_indexes[ind] = (mat.name, mat.pass_index)
     return obj_indexes
 
 
@@ -240,8 +246,10 @@ def load_handler_render_init(scene):
                 scene.view_layers["View Layer"].use_pass_normal = True
         if scene.render.engine == 'CYCLES':
             if vision_blender.bool_save_segmentation_masks:
-                if not scene.view_layers["View Layer"].use_pass_object_index:
-                    scene.view_layers["View Layer"].use_pass_object_index = True
+                # if not scene.view_layers["View Layer"].use_pass_object_index:
+                    # scene.view_layers["View Layer"].use_pass_object_index = True
+                if not scene.view_layers["View Layer"].use_pass_material_index:
+                    scene.view_layers["View Layer"].use_pass_material_index = True
             if vision_blender.bool_save_opt_flow:
                 if not scene.view_layers["View Layer"].use_pass_vector:
                     scene.view_layers["View Layer"].use_pass_vector = True
@@ -294,8 +302,8 @@ def load_handler_render_init(scene):
                 """ segmentation masks """
                 clean_folder(segmentation_masks_path)
                 if vision_blender.bool_save_segmentation_masks:
-                    obj_ind_found = check_any_obj_with_index() # Check if there are any object with object index set
-                    if obj_ind_found:
+                    mat_ind_found = check_any_material_with_index() # Check if there are any object with object index set
+                    if mat_ind_found:
                         ## create output node
                         node_segmentation_masks = create_node(tree, "CompositorNodeOutputFile", "segmentation_masks_vision_blender")
                         ### set-up the output img format
@@ -306,17 +314,17 @@ def load_handler_render_init(scene):
                         ### ref: https://blender.stackexchange.com/questions/18243/how-to-use-index-passes-in-other-compositing-packages
                         node_segmentation_masks.layer_slots.clear()
 
-                        for obj in bpy.data.objects:
-                            obj_pass_ind = obj.pass_index
-                            if obj_pass_ind != 0:
-                                ind_str = '{}_'.format(obj_pass_ind)
+                        for mat in bpy.data.materials:
+                            mat_pass_ind = mat.pass_index
+                            if mat_pass_ind != 0:
+                                ind_str = '{}_'.format(mat_pass_ind)
                                 # ref: https://blender.stackexchange.com/questions/65013/not-able-to-add-node-sockets-to-an-existing-node-using-python-scripting
                                 node_segmentation_masks.layer_slots.new(ind_str)
                                 node_id_mask = create_node(tree, "CompositorNodeIDMask", "{}_mask_vision_blender".format(ind_str))
-                                node_id_mask.index = obj_pass_ind
+                                node_id_mask.index = mat_pass_ind
                                 # create link
                                 links.new(node_id_mask.outputs["Alpha"], node_segmentation_masks.inputs[ind_str])
-                                links.new(rl.outputs["IndexOB"], node_id_mask.inputs["ID value"])
+                                links.new(rl.outputs["IndexMA"], node_id_mask.inputs["ID value"])
                 """ optical flow - Current to next frame """
                 clean_folder(opt_flow_path)
                 if vision_blender.bool_save_opt_flow:
@@ -383,9 +391,7 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
     if scene.vision_blender.bool_save_gt_data:
         vision_blender = scene.vision_blender
         gt_dir_path = os.path.dirname(scene.render.filepath)
-        #print(gt_dir_path)
         # save ground truth data
-        #print(scene.frame_current)
         """ Camera parameters """
         ## update camera - ref: https://blender.stackexchange.com/questions/5636/how-can-i-get-the-location-of-an-object-at-each-keyframe
         scene.frame_set(scene.frame_current) # needed to update the camera position
@@ -403,6 +409,7 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
             pixels = bpy.data.images['Viewer Node'].pixels
             #print(len(pixels)) # size = width * height * 4 (rgba)
             pixels_numpy = np.array(pixels[:])
+            np.save("pixels", pixels_numpy)
             #   .---> y
             #   |
             #   |
@@ -624,8 +631,8 @@ class RENDER_PT_gt_generator(GroundTruthGeneratorPanel):
             col.label(text="Optical Flow and Segmentation Masks requires Cycles!", icon='ERROR')
 
         if vision_blender.bool_save_segmentation_masks and context.engine == 'CYCLES':
-            obj_ind_found = check_any_obj_with_index()
-            if not obj_ind_found:
+            mat_ind_found = check_any_material_with_index()
+            if not mat_ind_found:
                 col = layout.column(align=True)
                 col.label(text="No object index found yet for Segmentation Masks...", icon='ERROR')
 
