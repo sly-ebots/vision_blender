@@ -1,7 +1,7 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
-
-data = np.load('0001.npz')
+data = np.load('/home/sally/programs/blender_generate_synthetic/renders/Denali1_Cam0_0.npz')
 #print(data.files)
 
 path_img = '0001.png'
@@ -22,25 +22,25 @@ if 'extrinsic_mat' in data.files:
     extrinsic_mat = data['extrinsic_mat']
     print("\tCamera extrinsic mat:\n{}\n".format(extrinsic_mat))
 
-if 'object_poses' in data.files:
-    obj_poses = data['object_poses']
+if 'object_pose_labels' in data.files and 'object_pose_mats' in data.files:
+    obj_pose_labels = data['object_pose_labels']
+    obj_pose_mats = data['object_pose_mats']
+    obj_poses = [{'obj_name': i, 'obj_pose_mat': j[:3,:]} for i, j in zip(obj_pose_labels, obj_pose_mats)]
     print('\tObject poses:')
     for obj in obj_poses:
-        obj_name = obj['name']
-        obj_mat  = obj['pose']
-        print(obj_name)
-        print(obj_mat)
-        # Get 2d pixel coordinate of object
-        if obj_name != 'Light' and obj_name != 'Camera':
+        print(obj['obj_name'])
+        print(obj['obj_pose_mat'])
+        if obj['obj_name'] != 'Light':
+            """ Get 2d coordinate of object """
             if ('intrinsic_mat' in data.files) and ('extrinsic_mat' in data.files):
-                point_3d = obj_mat[:,3]
-                point_3d_cam = np.matmul(extrinsic_mat, point_3d)
+                point_3d = obj['obj_pose_mat'][:,3]
+                point_3d_homog = np.append(point_3d, [1.0])
+                point_3d_cam = np.matmul(extrinsic_mat, point_3d_homog)
                 point_2d_scaled = np.matmul(intrinsic_mat, point_3d_cam)
                 if point_2d_scaled[2] != 0:
                     point_2d = point_2d_scaled / point_2d_scaled[2]
                     u, v = point_2d[:2]
                     print(' 2D image projection u:{} v:{}'.format(u, v))
-
 try:
     import cv2 as cv
 
@@ -70,11 +70,17 @@ try:
                                thickness=1, 
                                tipLength=.03)
         dst = cv.addWeighted(dst, 1.00, arrows, 0.25, 0)
-        cv.imshow('Optical Flow: From current to next - arrows', dst)
+        plt.figure()
+        plt.suptitle("Optical Flow: From current to next - arrows")
+        plt.imshow(dst)
+        #cv.imshow('Optical Flow: From current to next - arrows', dst)
 
     if 'normal_map' in data.files:
         normals = data['normal_map']
-        cv.imshow("Surface normals", normals)
+        plt.figure()
+        plt.suptitle("Surface normals")
+        plt.imshow(normals)        
+        #cv.imshow("Surface normals", normals)
 
     if 'segmentation_masks' in data.files:
         # we only have segmentation masks if at least 1 object's pass_index != 0
@@ -101,7 +107,10 @@ try:
 
         sg_msk_img = cv.applyColorMap(sg_msk_img, cv.COLORMAP_RAINBOW)
         sg_msk_img[sg_msk == 0] = [0, 0, 0]
-        cv.imshow("Segmentation masks", sg_msk_img)
+        plt.figure()
+        plt.suptitle("Segmentation masks")
+        plt.imshow(sg_msk_img)        
+        #cv.imshow("Segmentation masks", sg_msk_img)
 
     if 'depth_map' in data.files:
         depth = data['depth_map']
@@ -122,8 +131,12 @@ try:
         #normalized_depth = 255.0 - normalized_depth # invert values for draw
         depth_colored = cv.applyColorMap(normalized_depth, cv.COLORMAP_JET)
         depth_colored[depth == INVALID_DEPTH] = [0, 0, 0] # paint in black the regions with invalid depth
-        cv.imshow("Depth map", depth_colored)
+        plt.figure()
+        plt.suptitle("Depth map")
+        plt.imshow(depth_colored)
+        #cv.imshow("Depth map", depth_colored)
 
-    cv.waitKey(0)
+    #cv.waitKey(0)
+    plt.show()
 except ImportError:
     print("\"opencv-python\" not found, please install to visualize the rest of the results.")
