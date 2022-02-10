@@ -152,7 +152,7 @@ def correct_cycles_depth_vectorize(z_map, res_x, res_y, f_x, f_y, c_x, c_y, INVA
     y = i % res_x
     x_s = x.reshape((res_y, res_x))
     y_s = y.reshape((res_y, res_x))
-    z_map[0:res_y, 0:res_x] = z_map[0:res_y, 0:res_x] * np.linalg.norm([1, (c_x - x_s)/f_x, (c_y - y_s)/f_y])
+    z_map[0:res_y, 0:res_x] = z_map[0:res_y, 0:res_x] / np.linalg.norm([1, (c_x - x_s)/f_x, (c_y - y_s)/f_y])
 
     return z_map
 
