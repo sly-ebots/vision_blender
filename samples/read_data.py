@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 data = np.load('/home/sally/programs/blender_generate_synthetic/renders/Denali1_Cam0_0.npz')
 #print(data.files)
 
-path_img = '0001.png'
-path_img_next = '0002.png'
+path_img = 'Denali1_Cam0_0.png'
+path_img_next = 'Denali1_Cam1_0.png'
 
 if 'intrinsic_mat' in data.files:
     intrinsic_mat = data['intrinsic_mat']
@@ -86,7 +86,7 @@ try:
         # we only have segmentation masks if at least 1 object's pass_index != 0
         sg_msk = data['segmentation_masks']
         sg_msk_inds = data['segmentation_masks_indexes']
-        #print(sg_msk_inds)
+        print(sg_msk_inds)
         # You can also access the individual fields using:
         #print(sg_msk_inds['name'])
         #print(sg_msk_inds['pass_index'])

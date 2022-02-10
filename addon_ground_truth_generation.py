@@ -16,6 +16,8 @@ import json
 import os
 import shutil # to remove files for Cycles
 import numpy as np # TODO: check if Blender has numpy by default
+from timeit import default_timer as timer
+from datetime import timedelta
 
 import bpy
 from bpy.props import (#StringProperty, # TODO: not being used
@@ -30,6 +32,8 @@ from bpy.types import (Panel,
                    PropertyGroup
                    )
 from bpy.app.handlers import persistent
+
+
 
 """ Defining fuctions to obtain ground truth data """
 def get_scene_resolution(scene):
@@ -144,6 +148,16 @@ def correct_cycles_depth(z_map, res_x, res_y, f_x, f_y, c_x, c_y, INVALID_POINT)
             if val != INVALID_POINT:
                 a = ((c_x - x) / f_x)
                 z_map[y][x] = val / np.linalg.norm([1, a, b])
+    return z_map
+
+def correct_cycles_depth_vectorize(z_map, res_x, res_y, f_x, f_y, c_x, c_y, INVALID_POINT):
+    i = np.arange(0, res_x * res_y)
+    x = i / res_x
+    y = i % res_x
+    x_s = x.reshape((res_y, res_x))
+    y_s = y.reshape((res_y, res_x))
+    z_map[0:res_y, 0:res_x] = z_map[0:res_y, 0:res_x] * np.linalg.norm([1, (c_x - x_s)/f_x, (c_y - y_s)/f_y])
+
     return z_map
 
 
@@ -297,6 +311,7 @@ def load_handler_render_init(scene):
                     links.new(rl.outputs["Vector"], node_opt_flow.inputs["Alpha"])
             else:
                 path_render = os.path.dirname(scene.render.filepath)
+                print("Path render: ", path_render)
                 segmentation_masks_path = os.path.join(path_render, "segmentation_masks_vision_blender")
                 opt_flow_path = os.path.join(path_render, "opt_flow_vision_blender")
                 """ segmentation masks """
@@ -388,6 +403,8 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
     """ This script runs after rendering each frame """
     # ref: https://blenderartists.org/t/how-to-run-script-on-every-frame-in-blender-render/699404/2
     # check if user wants to generate the ground truth data
+    start = timer()
+
     if scene.vision_blender.bool_save_gt_data:
         vision_blender = scene.vision_blender
         gt_dir_path = os.path.dirname(scene.render.filepath)
@@ -404,6 +421,7 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
         normal = None
         z = None
         disp = None
+        gt_start = timer()
         res_x, res_y = get_scene_resolution(scene)
         if vision_blender.bool_save_depth or vision_blender.bool_save_normals:
             pixels = bpy.data.images['Viewer Node'].pixels
@@ -417,9 +435,11 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
             #    x
             pixels_numpy.resize((res_y, res_x, 4)) # Numpy works with (y, x, channels)
             if vision_blender.bool_save_normals:
+                print("Saving normals")
                 normal = pixels_numpy[:, :, 0:3]
                 normal = np.flip(normal, 0) # flip vertically (in Blender y in the image points up instead of down)
             if vision_blender.bool_save_depth:
+                print("Saving Depth")
                 z = pixels_numpy[:, :, 3]
                 z = np.flip(z, 0) # flip vertically (in Blender y in the image points up instead of down)
                 # points at infinity get a -1 value
@@ -428,7 +448,10 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
                 #normal[z > max_dist] = INVALID_POINT # TODO: I think this is not necessary, maybe there is another way to see if that normal point is valid?
                 z[z > max_dist] = INVALID_POINT
                 if scene.render.engine == "CYCLES":
-                    z = correct_cycles_depth(z, res_x, res_y, f_x, f_y, c_x, c_y, INVALID_POINT)
+                    depth_start = timer()
+                    z = correct_cycles_depth_vectorize(z, res_x, res_y, f_x, f_y, c_x, c_y, INVALID_POINT)
+                    depth_end = timer()
+                    print("Depth Time: ", timedelta(seconds=depth_end - depth_start))
                 """ disparity """
                 # if stereo also calculate disparity
                 cam = scene.camera
@@ -438,7 +461,8 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
                     baseline_m = cam.data.stereo.interocular_distance # [m]
                     disp = np.zeros_like(z) # disp = 0.0, on the invalid points
                     disp[z != INVALID_POINT] = (baseline_m * f_x) / z[z != INVALID_POINT]
-
+        gt_end = timer()
+        print("Depth+Normals: ", timedelta(seconds=gt_end - gt_start))
 
         """ Segmentation Masks + Opt flow"""
         seg_masks = None
@@ -475,6 +499,7 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
                                         seg_masks[tmp_seg_mask != 0] = obj_pass_ind
                                         os.remove(img_path)
                                 os.rmdir(seg_masks_path)
+
                     if vision_blender.bool_save_opt_flow:
                         """ Forward optical flow - from current to next frame """
                         if check_if_node_exists(scene.node_tree, 'opt_flow_vision_blender'):
@@ -533,6 +558,8 @@ def load_handler_after_rend_frame(scene): # TODO: not sure if this is the best p
         out_dict_filtered = {k: v for k, v in out_dict.items() if v is not None}
         np.savez_compressed(out_path, **out_dict_filtered)
         # ref: https://stackoverflow.com/questions/35133317/numpy-save-some-arrays-at-once
+    end = timer()
+    print("Total Time: ", timedelta(seconds=end-start))
 
 # classes
 class MyAddonProperties(PropertyGroup):
